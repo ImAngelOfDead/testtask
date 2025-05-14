@@ -22,6 +22,227 @@ const SALSA20_IV = Buffer.from([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 ]);
 
+
+let salsa20;
+try {
+  salsa20 = require('salsa20-js');
+} catch (e) {
+  console.warn("Библиотека salsa20-js не найдена. Используется встроенная реализация chacha20 как аналог.");
+  salsa20 = null;
+}
+
+function encryptSalsa20(message) {
+  try {
+    if (salsa20) {
+      const cipher = new salsa20(SALSA20_KEY, SALSA20_IV);
+      const messageBuffer = Buffer.from(message, 'utf8');
+      const encrypted = cipher.encrypt(messageBuffer);
+      return Buffer.from(encrypted);
+    } else {
+      const cipher = crypto.createCipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
+      let encrypted = cipher.update(message, 'utf8');
+      encrypted = Buffer.concat([encrypted, cipher.final()]);
+      return encrypted;
+    }
+  } catch (error) {
+    console.error('Ошибка шифрования:', error);
+    throw new Error('Ошибка шифрования сообщения');
+  }
+}
+
+function decryptSalsa20(encrypted) {
+  try {
+    if (salsa20) {
+      const decipher = new salsa20(SALSA20_KEY, SALSA20_IV);
+      const decrypted = decipher.decrypt(encrypted);
+      return Buffer.from(decrypted).toString('utf8');
+    } else {
+      const decipher = crypto.createDecipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
+      let decrypted = decipher.update(encrypted);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+      return decrypted.toString('utf8');
+    }
+  } catch (error) {
+    console.error('Ошибка дешифрования:', error);
+    throw new Error('Ошибка дешифрования сообщения');
+  }
+}
+
+function createPureSalsa20() {
+  const TAU = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+  const SIGMA = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+  
+  function rol32(a, b) {
+    return ((a << b) | (a >>> (32 - b))) >>> 0;
+  }
+  
+  function littleEndian(buffer, index) {
+    return buffer[index] | (buffer[index + 1] << 8) | (buffer[index + 2] << 16) | (buffer[index + 3] << 24);
+  }
+  
+  function toLittleEndian(a, buffer, index) {
+    buffer[index] = a & 0xff;
+    buffer[index + 1] = (a >>> 8) & 0xff;
+    buffer[index + 2] = (a >>> 16) & 0xff;
+    buffer[index + 3] = (a >>> 24) & 0xff;
+  }
+  
+  function salsa20Core(input, output) {
+    let x0 = input[0],
+        x1 = input[1],
+        x2 = input[2],
+        x3 = input[3],
+        x4 = input[4],
+        x5 = input[5],
+        x6 = input[6],
+        x7 = input[7],
+        x8 = input[8],
+        x9 = input[9],
+        x10 = input[10],
+        x11 = input[11],
+        x12 = input[12],
+        x13 = input[13],
+        x14 = input[14],
+        x15 = input[15];
+    
+
+    for (let i = 0; i < 10; i++) {
+
+      x4 ^= rol32(x0 + x12, 7);
+      x8 ^= rol32(x4 + x0, 9);
+      x12 ^= rol32(x8 + x4, 13);
+      x0 ^= rol32(x12 + x8, 18);
+      
+      x9 ^= rol32(x5 + x1, 7);
+      x13 ^= rol32(x9 + x5, 9);
+      x1 ^= rol32(x13 + x9, 13);
+      x5 ^= rol32(x1 + x13, 18);
+      
+      x14 ^= rol32(x10 + x6, 7);
+      x2 ^= rol32(x14 + x10, 9);
+      x6 ^= rol32(x2 + x14, 13);
+      x10 ^= rol32(x6 + x2, 18);
+      
+      x3 ^= rol32(x15 + x11, 7);
+      x7 ^= rol32(x3 + x15, 9);
+      x11 ^= rol32(x7 + x3, 13);
+      x15 ^= rol32(x11 + x7, 18);
+      
+      x1 ^= rol32(x0 + x3, 7);
+      x2 ^= rol32(x1 + x0, 9);
+      x3 ^= rol32(x2 + x1, 13);
+      x0 ^= rol32(x3 + x2, 18);
+      
+      x6 ^= rol32(x5 + x4, 7);
+      x7 ^= rol32(x6 + x5, 9);
+      x4 ^= rol32(x7 + x6, 13);
+      x5 ^= rol32(x4 + x7, 18);
+      
+      x11 ^= rol32(x10 + x9, 7);
+      x8 ^= rol32(x11 + x10, 9);
+      x9 ^= rol32(x8 + x11, 13);
+      x10 ^= rol32(x9 + x8, 18);
+      
+      x12 ^= rol32(x15 + x14, 7);
+      x13 ^= rol32(x12 + x15, 9);
+      x14 ^= rol32(x13 + x12, 13);
+      x15 ^= rol32(x14 + x13, 18);
+    }
+    
+    output[0] = x0 + input[0];
+    output[1] = x1 + input[1];
+    output[2] = x2 + input[2];
+    output[3] = x3 + input[3];
+    output[4] = x4 + input[4];
+    output[5] = x5 + input[5];
+    output[6] = x6 + input[6];
+    output[7] = x7 + input[7];
+    output[8] = x8 + input[8];
+    output[9] = x9 + input[9];
+    output[10] = x10 + input[10];
+    output[11] = x11 + input[11];
+    output[12] = x12 + input[12];
+    output[13] = x13 + input[13];
+    output[14] = x14 + input[14];
+    output[15] = x15 + input[15];
+  }
+  
+  function setupState(key, nonce, counter) {
+    const state = new Uint32Array(16);
+    
+    state[0] = SIGMA[0];
+    state[1] = SIGMA[1];
+    state[2] = SIGMA[2];
+    state[3] = SIGMA[3];
+    
+    for (let i = 0; i < 8; i++) {
+      state[4 + i] = littleEndian(key, i * 4);
+    }
+    
+    state[8] = counter;
+    state[9] = 0;
+    
+    for (let i = 0; i < 2; i++) {
+      state[10 + i] = littleEndian(nonce, i * 4);
+    }
+    
+    return state;
+  }
+  
+  function encrypt(data, key, nonce, counter = 0) {
+    const result = Buffer.allocUnsafe(data.length);
+    const state = setupState(key, nonce, counter);
+    const block = new Uint32Array(16);
+    
+    for (let i = 0; i < data.length; i += 64) {
+      salsa20Core(state, block);
+      state[8]++;
+
+      const blockBytes = new Uint8Array(64);
+      for (let j = 0; j < 16; j++) {
+        toLittleEndian(block[j], blockBytes, j * 4);
+      }
+      
+      for (let j = 0; j < 64 && i + j < data.length; j++) {
+        result[i + j] = data[i + j] ^ blockBytes[j];
+      }
+    }
+    
+    return result;
+  }
+  
+  function decrypt(data, key, nonce, counter = 0) {
+    return encrypt(data, key, nonce, counter);
+  }
+  
+  return { encrypt, decrypt };
+}
+
+if (!salsa20 && !crypto.getCiphers().includes('chacha20')) {
+  console.warn("Используется чистая JavaScript реализация Salsa20.");
+  const pureSalsa20 = createPureSalsa20();
+  
+  encryptSalsa20 = function(message) {
+    try {
+      const messageBuffer = Buffer.from(message, 'utf8');
+      return pureSalsa20.encrypt(messageBuffer, SALSA20_KEY, SALSA20_IV);
+    } catch (error) {
+      console.error('Ошибка шифрования:', error);
+      throw new Error('Ошибка шифрования сообщения');
+    }
+  };
+  
+  decryptSalsa20 = function(encrypted) {
+    try {
+      const decrypted = pureSalsa20.decrypt(encrypted, SALSA20_KEY, SALSA20_IV);
+      return decrypted.toString('utf8');
+    } catch (error) {
+      console.error('Ошибка дешифрования:', error);
+      throw new Error('Ошибка дешифрования сообщения');
+    }
+  };
+}
+
 let sslOptions;
 try {
   sslOptions = {
@@ -53,30 +274,6 @@ app.get('/health', (req, res) => {
 });
 
 const server = https.createServer(sslOptions, app);
-
-function encryptSalsa20(message) {
-  try {
-    const cipher = crypto.createCipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
-    let encrypted = cipher.update(message, 'utf8');
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-    return encrypted;
-  } catch (error) {
-    console.error('Ошибка шифрования:', error);
-    throw new Error('Ошибка шифрования сообщения');
-  }
-}
-
-function decryptSalsa20(encrypted) {
-  try {
-    const decipher = crypto.createDecipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
-    let decrypted = decipher.update(encrypted);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString('utf8');
-  } catch (error) {
-    console.error('Ошибка дешифрования:', error);
-    throw new Error('Ошибка дешифрования сообщения');
-  }
-}
 
 const clients = new Map();
 let wsServer = null;
@@ -158,7 +355,6 @@ function handleNewConnection(ws, req) {
   }, 30000);
   
   ws.on('pong', () => {
-    // Клиент ответил на пинг, соединение активно
   });
   
   ws.on('message', (message) => {
@@ -284,7 +480,6 @@ function checkServerStatus() {
   };
 }
 
-// Создаем API маршруты с передачей объекта сервера
 const apiRoutes = require('./src/api/api')({
   eventBus,
   startWSServer,
@@ -295,18 +490,16 @@ const apiRoutes = require('./src/api/api')({
   isServerRunning: () => isServerRunning
 });
 
-// Подключаем API маршруты
 app.use('/api', apiRoutes);
 
-// Запуск сервера
+
 server.listen(PORT, () => {
   console.log(`HTTPS Server запущен на порту ${PORT} (${ENV})`);
   
-  // Активируем проверку неактивных клиентов
+
   setInterval(() => {
     const now = Date.now();
     clients.forEach((client, clientId) => {
-      // Проверяем клиентов, которые не отвечали более 5 минут
       if (now - client.lastActivity > 5 * 60 * 1000) {
         eventBus.emit('log', `Клиент ${clientId} не отвечает, отключение...`);
         client.ws.terminate();

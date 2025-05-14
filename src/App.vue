@@ -112,7 +112,6 @@ export default {
       const timestamp = new Date().toLocaleTimeString();
       this.serverLogs.push(`[${timestamp}] ${message}`);
       
-      // Ограничиваем количество записей в логе
       if (this.serverLogs.length > this.maxLogEntries) {
         this.serverLogs = this.serverLogs.slice(-this.maxLogEntries);
       }
@@ -195,11 +194,9 @@ export default {
       this.handleCommandResponse(data);
     });
     
-    // Проверка начального состояния
     socketService.checkStatus();
   },
   mounted() {
-    // Добавляем обработчик для клавиатурной навигации между клиентами
     document.addEventListener('keydown', (e) => {
       if (!this.isServerRunning || this.clients.length === 0) return;
       

